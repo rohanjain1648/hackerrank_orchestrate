@@ -51,48 +51,44 @@ def process_ticket(
 
     if should_escalate:
         print(f"  -> ESCALATED (rule): {esc_reason}")
-        # Still retrieve context for a helpful escalation message
-        query = f"{ticket.subject} {ticket.issue}"
-        docs = retriever.retrieve(query, company=ticket.company)
-        context = retriever.format_context(docs)
-
-        llm_output = call_llm(context, ticket)
-        # Force escalation but use LLM's product_area and response enrichment
-        result = build_triage_result(
-            ticket, llm_output,
-            override_status="escalated",
-            override_justification=f"{esc_reason}. {llm_output.get('justification', '')}",
-        )
-        if esc_area:
-            result.product_area = esc_area
-        return result
+        return TriageResult(
+            issue=ticket.issue,
+            subject=ticket.subject,
+            company=ticket.company,
+            status="escalated",
+            product_area=esc_area if esc_area else "general_support",
+            response=f"I am escalating your request regarding '{ticket.subject}' to our specialized {esc_area.replace('_', ' ')} team. {esc_reason}.",
+            justification=f"Deterministic escalation rule: {esc_reason}",
+            request_type="escalation"
+        ).validate()
 
     # ── Stage 3: Handle prompt injection ──────────────────────────────
     if safety["is_injection"]:
         print(f"  -> ESCALATED (injection): {safety['injection_reason']}")
-        # Retrieve docs for context-aware response
-        query = f"{ticket.subject} {ticket.issue}"
-        docs = retriever.retrieve(query, company=ticket.company)
-        context = retriever.format_context(docs)
-        llm_output = call_llm(context, ticket)
-        return build_triage_result(
-            ticket, llm_output,
-            override_status="escalated",
-            override_justification=f"Prompt injection detected. {safety['injection_reason']}",
-        )
+        return TriageResult(
+            issue=ticket.issue,
+            subject=ticket.subject,
+            company=ticket.company,
+            status="escalated",
+            product_area="security",
+            response="I am escalating this ticket to our security team for further review.",
+            justification=f"Prompt injection detected: {safety['injection_reason']}",
+            request_type="escalation"
+        ).validate()
 
     # ── Stage 4: Handle non-English tickets ───────────────────────────
     if safety["language"] == "non-english":
         print(f"  -> ESCALATED (non-English)")
-        query = f"{ticket.subject} {ticket.issue}"
-        docs = retriever.retrieve(query, company=ticket.company)
-        context = retriever.format_context(docs)
-        llm_output = call_llm(context, ticket)
-        return build_triage_result(
-            ticket, llm_output,
-            override_status="escalated",
-            override_justification="Non-English ticket detected; escalating to a multilingual support agent.",
-        )
+        return TriageResult(
+            issue=ticket.issue,
+            subject=ticket.subject,
+            company=ticket.company,
+            status="escalated",
+            product_area="general_support",
+            response="I am escalating this ticket to a multilingual support agent.",
+            justification="Non-English ticket detected.",
+            request_type="escalation"
+        ).validate()
 
     # ── Stage 5: Handle vague tickets ─────────────────────────────────
     if is_vague_ticket(ticket):
